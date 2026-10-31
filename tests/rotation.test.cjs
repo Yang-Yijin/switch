@@ -1,0 +1,10 @@
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const {fresh,move,fill,rotation,advance,validState,validTeams}=require('../public/app.js');
+test('首发及连续 100 轮始终混双，无人重复或遗漏',()=>{let s=fill(fresh());assert.equal(s.round,1);assert.deepEqual(s.slots,['steve','kathay','stella','alyx']);for(let i=0;i<100;i++){const before=s;const plan=rotation(s);s=advance(s);assert.ok(validState(s));assert.ok(validTeams(s));for(const r of plan){assert.equal(s.slots[r.index],r.incoming);assert.equal(personGender(before,r.incoming),personGender(before,r.outgoing));const earlier=before.slots.filter(id=>personGender(before,id)===personGender(before,r.outgoing)).sort((a,b)=>before.entered[a]-before.entered[b]);assert.equal(r.outgoing,earlier[0]);}assert.equal(s.round,i+2);}});
+function personGender(s,id){return s.people.find(p=>p.id===id).gender;}
+test('拒绝同队同性别，原状态不变',()=>{const s=fill(fresh()),copy=structuredClone(s);assert.throws(()=>move(s,'ray',1),/one man and one woman/);assert.deepEqual(s,copy);});
+test('跨情侣搭档和场内交换保留上场时间',()=>{let s=fill(fresh());s=move(s,'frances',1);assert.equal(s.slots[1],'frances');assert.equal(s.slots[0],'steve');const times={...s.entered};s=move(s,'steve',3);assert.equal(s.slots[3],'steve');assert.deepEqual(s.entered,times);assert.ok(validState(s));});
+test('离场后重新进场获得新的顺序，补齐阵容',()=>{let s=fill(fresh());const old=s.entered.steve;s=move(s,'steve','bench');assert.equal(s.slots[0],null);assert.ok(!s.entered.steve);s=move(s,'steve',0);assert.ok(s.entered.steve>old);s=move(s,'kathay','bench');s=advance(s);assert.ok(validState(s));assert.ok(s.slots.every(Boolean));});
+test('两位相同性别候补按先后替换，仍保持混双',()=>{let s=fresh();s.people.find(p=>p.id==='frances').gender='M';s=fill(s);assert.equal(s.bench.length,2);const outs=rotation(s).map(r=>r.outgoing);assert.deepEqual(outs,['steve','alyx']);s=advance(s);assert.ok(validState(s));});
+test('损坏的持久化数据被拒绝',()=>{assert.equal(validState({}),false);const s=fill(fresh());s.slots[1]=s.slots[0];assert.equal(validState(s),false);});
