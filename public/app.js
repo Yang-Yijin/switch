@@ -7,7 +7,7 @@ const PEOPLE = [
   {id:'frances',name:'Frances',gender:'F',partner:'Ray'},
   {id:'ray',name:'Ray',gender:'M',partner:'Frances'}
 ];
-function fresh(){return {people:structuredClone(PEOPLE),slots:[null,null,null,null],bench:PEOPLE.map(p=>p.id),entered:{},tick:0,round:0};}
+function fresh(){return {people:structuredClone(PEOPLE),slots:[null,null,null,null],bench:PEOPLE.map(p=>p.id),entered:{},tick:0,round:0,scores:[0,0]};}
 function person(s,id){return s.people.find(p=>p.id===id);}
 function validTeams(s){return [0,2].every(i=>!s.slots[i]||!s.slots[i+1]||person(s,s.slots[i]).gender!==person(s,s.slots[i+1]).gender);}
 function validState(s){
@@ -16,6 +16,7 @@ function validState(s){
   const ids=[...s.slots.filter(Boolean),...s.bench];
   if(ids.length!==6||new Set(ids).size!==6||ids.some(id=>!person(s,id)))return false;
   if(!s.entered||!Number.isSafeInteger(s.tick)||s.tick<0||!Number.isSafeInteger(s.round)||s.round<0)return false;
+  if(s.scores!==undefined&&(!Array.isArray(s.scores)||s.scores.length!==2||!s.scores.every(n=>Number.isSafeInteger(n)&&n>=0)))return false;
   const timestamps=s.slots.filter(Boolean).map(id=>s.entered[id]);
   return validTeams(s)&&timestamps.every(n=>Number.isSafeInteger(n)&&n>0&&n<=s.tick)&&new Set(timestamps).size===timestamps.length;
 }
@@ -63,13 +64,30 @@ function advance(s){
   if(s.slots.some(id=>!id))return fill(s);
   const n=structuredClone(s),plan=rotation(s);
   for(const r of plan){n.slots[r.index]=r.incoming;delete n.entered[r.outgoing];n.entered[r.incoming]=++n.tick;}
-  n.bench=plan.map(r=>r.outgoing);n.round++;return n;
+  n.bench=plan.map(r=>r.outgoing);n.round++;n.scores=[0,0];return n;
 }
-if(typeof module!=='undefined')module.exports={fresh,move,fill,rotation,advance,validState,validTeams};
+function changeScore(s,team,delta){
+  if(![0,1].includes(team)||![1,-1].includes(delta))throw Error('Invalid score change.');
+  const n=structuredClone(s);n.scores=n.scores||[0,0];
+  const score=n.scores[team]+delta;
+  if(Number.isSafeInteger(score)&&score>=0)n.scores[team]=score;
+  return n;
+}
+function resetScores(s){const n=structuredClone(s);n.scores=[0,0];return n;}
+function swapTeam(s,team){
+  if(![0,1].includes(team))throw Error('Invalid team.');
+  const n=structuredClone(s),i=team*2;
+  [n.slots[i],n.slots[i+1]]=[n.slots[i+1],n.slots[i]];return n;
+}
+function switchEnds(s){
+  const n=structuredClone(s);n.slots=[...s.slots.slice(2),...s.slots.slice(0,2)];
+  n.scores=[...(s.scores||[0,0])].reverse();return n;
+}
+if(typeof module!=='undefined')module.exports={fresh,move,fill,rotation,advance,validState,validTeams,changeScore,resetScores,swapTeam,switchEnds};
 if(typeof document!=='undefined'){
 const KEY='six-on-court-v1';let state=fresh(),history=[],selected=null;
 let storageAvailable=true;
-try{const saved=JSON.parse(localStorage.getItem(KEY));if(validState(saved))state=saved;}catch{storageAvailable=false;}
+try{const saved=JSON.parse(localStorage.getItem(KEY));if(validState(saved))state={...saved,scores:saved.scores||[0,0]};}catch{storageAvailable=false;}
 const $=id=>document.getElementById(id);
 function notify(message){$('status').textContent=message;}
 function persist(){try{localStorage.setItem(KEY,JSON.stringify(state));}catch{storageAvailable=false;}if(!storageAvailable)notify('Saving is unavailable. Keep this page open to retain this session.');}
@@ -87,12 +105,19 @@ function render(){
  $('round').textContent=String(state.round).padStart(2,'0');$('court-count').textContent=state.slots.filter(Boolean).length+' / 4';$('bench-count').textContent=state.bench.length+' players';
  document.querySelectorAll('[data-slot]').forEach((el,i)=>{el.replaceChildren();if(state.slots[i])el.append(card(state.slots[i],true));else{const b=document.createElement('button');b.className='empty-slot';b.innerHTML='<b>＋</b><span>Add player</span>';b.setAttribute('aria-label',(i<2?'A':'B')+' position '+(i%2+1)+', Add player');el.append(b);}});
  $('bench').replaceChildren(...state.bench.map(id=>card(id,false)));
+ for(let team=0;team<2;team++){
+   $('score-'+team).textContent=state.scores[team];
+   $('minus-'+team).disabled=state.scores[team]===0;
+   $('swap-'+team).disabled=!state.slots.slice(team*2,team*2+2).some(Boolean);
+ }
+ $('reset-scores').disabled=state.scores.every(n=>n===0);
+ $('switch-ends').disabled=!state.slots.some(Boolean);
  const full=state.slots.every(Boolean);$('rotate').innerHTML=(full?'Next round':state.slots.some(Boolean)?'Fill empty positions':'Auto-fill court')+' <span>↗</span>';
  $('next-title').textContent=full?'Next rotation':'Starting lineup';
  $('preview').replaceChildren();
  if(full){for(const r of rotation(state)){const el=document.createElement('div');el.className='swap-row';el.innerHTML='<span>'+person(state,r.outgoing).name+' <small>out</small></span><span>→</span><b>'+person(state,r.incoming).name+' <small>in</small></b>';$('preview').append(el);}}
  else $('preview').textContent='Add four players manually or auto-fill the court.';
- $('rotation-note').textContent=full?'The earliest-entered player of the same gender rotates out.':'Each team needs one man and one woman.';$('undo').disabled=!history.length;
+ $('rotation-note').textContent=full?'The earliest-entered player of the same gender rotates out. Scores reset each round.':'Each team needs one man and one woman.';$('undo').disabled=!history.length;
 }
 for(const el of document.querySelectorAll('[data-slot]')){
  el.addEventListener('click',()=>{if(selected)attempt(selected,Number(el.dataset.slot));else notify('Select a player first.');});
@@ -104,7 +129,14 @@ $('bench-target').addEventListener('click',()=>{if(selected)attempt(selected,'be
 $('bench-zone').addEventListener('dragover',e=>{e.preventDefault();$('bench-zone').classList.add('drag-over');});
 $('bench-zone').addEventListener('dragleave',()=>$('bench-zone').classList.remove('drag-over'));
 $('bench-zone').addEventListener('drop',e=>{e.preventDefault();$('bench-zone').classList.remove('drag-over');attempt(e.dataTransfer.getData('text/plain'),'bench');});
-$('rotate').addEventListener('click',()=>{try{const full=state.slots.every(Boolean);commit(advance(state),full?'Rotation complete.':'Starting lineup ready.');}catch(e){notify(e.message);}});
+for(let team=0;team<2;team++){
+ $('plus-'+team).addEventListener('click',()=>commit(changeScore(state,team,1),'Team '+(team===0?'A':'B')+' +1.'));
+ $('minus-'+team).addEventListener('click',()=>commit(changeScore(state,team,-1),'Team '+(team===0?'A':'B')+' −1.'));
+ $('swap-'+team).addEventListener('click',()=>commit(swapTeam(state,team),'Team '+(team===0?'A':'B')+' positions swapped. Entry order kept.'));
+}
+$('reset-scores').addEventListener('click',()=>commit(resetScores(state),'Scores reset.'));
+$('switch-ends').addEventListener('click',()=>commit(switchEnds(state),'Teams switched ends. Scores follow the players; entry order kept.'));
+$('rotate').addEventListener('click' ,()=>{try{const full=state.slots.every(Boolean);commit(advance(state),full?'Rotation complete. Scores reset for the new round.':'Starting lineup ready.');}catch(e){notify(e.message);}});
 $('undo').addEventListener('click',()=>{if(!history.length)return;state=history.pop();selected=null;render();persist();if(storageAvailable)notify('Last action undone.');});
 $('reset').addEventListener('click',()=>{$('reset-dialog').returnValue='';$('reset-dialog').showModal();});
 $('reset-dialog').addEventListener('close',()=>{if($('reset-dialog').returnValue==='reset'){const n=fresh();n.people=structuredClone(state.people);commit(n,'Session reset.');}});
