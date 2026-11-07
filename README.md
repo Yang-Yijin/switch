@@ -13,6 +13,12 @@
 
 预设：Steve / Alyx / Ray 为男生，Kathay / Stella / Frances 为女生。
 
+## Scoring and positions
+
+Use + / − to adjust either team’s score, or Reset score to clear both. Next round resets the scores. Scores are saved locally and included in Undo.
+
+Swap A positions / Swap B positions exchanges teammates. Switch ends exchanges whole teams, including their scores. Entry order is preserved. Players can also be dragged or selected and moved manually.
+
 ## 本地预览
 
 在项目目录运行 `python3 -m http.server 8080 --directory public`，打开 http://localhost:8080 。也可以直接打开 public/index.html。
